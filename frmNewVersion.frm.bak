@@ -1,0 +1,468 @@
+VERSION 5.00
+Object = "{48E59290-9880-11CF-9754-00AA00C00908}#1.0#0"; "MSINET.ocx"
+Object = "{831FDD16-0C5C-11D2-A9FC-0000F8754DA1}#2.1#0"; "mscomctl.OCX"
+Begin VB.Form frmNewVersion 
+   BackColor       =   &H8000000E&
+   BorderStyle     =   1  'Fixed Single
+   Caption         =   "Download"
+   ClientHeight    =   3090
+   ClientLeft      =   45
+   ClientTop       =   435
+   ClientWidth     =   4245
+   ControlBox      =   0   'False
+   LinkTopic       =   "Form3"
+   MaxButton       =   0   'False
+   MinButton       =   0   'False
+   ScaleHeight     =   3090
+   ScaleWidth      =   4245
+   StartUpPosition =   3  'Windows Default
+   Begin VB.CheckBox Check1 
+      BackColor       =   &H8000000E&
+      Caption         =   "Tick to skip this version"
+      Height          =   255
+      Left            =   240
+      TabIndex        =   5
+      Top             =   1200
+      Width           =   2055
+   End
+   Begin MSComctlLib.StatusBar StatusBar1 
+      Align           =   2  'Align Bottom
+      Height          =   255
+      Left            =   0
+      TabIndex        =   4
+      Top             =   2835
+      Width           =   4245
+      _ExtentX        =   7488
+      _ExtentY        =   450
+      _Version        =   393216
+      BeginProperty Panels {8E3867A5-8586-11D1-B16A-00C0F0283628} 
+         NumPanels       =   1
+         BeginProperty Panel1 {8E3867AB-8586-11D1-B16A-00C0F0283628} 
+            AutoSize        =   2
+            Bevel           =   0
+         EndProperty
+      EndProperty
+   End
+   Begin InetCtlsObjects.Inet Inet1 
+      Left            =   840
+      Top             =   480
+      _ExtentX        =   1005
+      _ExtentY        =   1005
+      _Version        =   393216
+      Protocol        =   4
+      URL             =   "http://"
+      RequestTimeout  =   1
+   End
+   Begin VB.Timer Timer1 
+      Enabled         =   0   'False
+      Interval        =   1000
+      Left            =   240
+      Top             =   600
+   End
+   Begin VB.CommandButton cmdCancel 
+      Caption         =   "Cancel"
+      Height          =   495
+      Left            =   2520
+      TabIndex        =   1
+      Top             =   2160
+      Width           =   1455
+   End
+   Begin VB.CommandButton cmdOK 
+      Caption         =   "Download Now"
+      Height          =   495
+      Left            =   240
+      TabIndex        =   0
+      Top             =   2160
+      Width           =   1575
+   End
+   Begin MSComctlLib.ProgressBar ProgressBar1 
+      Height          =   255
+      Left            =   240
+      TabIndex        =   3
+      Top             =   1560
+      Visible         =   0   'False
+      Width           =   3735
+      _ExtentX        =   6588
+      _ExtentY        =   450
+      _Version        =   393216
+      Appearance      =   1
+   End
+   Begin VB.Label Label1 
+      AutoSize        =   -1  'True
+      BackColor       =   &H8000000E&
+      Caption         =   "Label1"
+      Height          =   195
+      Left            =   240
+      TabIndex        =   2
+      Top             =   120
+      Width           =   4185
+      WordWrap        =   -1  'True
+   End
+End
+Attribute VB_Name = "frmNewVersion"
+Attribute VB_GlobalNameSpace = False
+Attribute VB_Creatable = False
+Attribute VB_PredeclaredId = True
+Attribute VB_Exposed = False
+Option Explicit
+
+Dim Timeout As Long 'Seconds
+Dim Url As String
+Dim ch As Long
+Dim Outfil As String
+Dim DownloadOK As Boolean
+
+Private Sub Check1_Click()
+
+    If Check1.Value <> vbUnchecked Then
+        cmdOK.Enabled = False
+'We have asked to skip installing this version, so even though we havn't actually installed it we
+'need to update the LastVersion in the Registry so we are not reminded again to download it.
+'The key must have already been set up by inno
+SetKeyValue HKEY_LOCAL_MACHINE, "Software\Arundale\" & App.EXEName & "\Settings", "LastVersion", MyNewVersion.NewVersion, REG_SZ
+'Close the form using Cancel
+        cmdCancel.Value = True
+    End If
+
+End Sub
+
+Private Sub cmdCancel_Click()
+    Inet1.Cancel
+    DownloadOK = False
+    Unload Me   'required here if user clicks cancel before download has commenced
+End Sub
+
+Private Sub cmdOK_Click()
+Dim ret As Boolean
+    DownloadOK = True   'Assume OK
+    Timeout = 300 '5 mins  max for the actual download
+    ret = PBandD("http://" & Url)
+'    If Ret Then
+    If DownloadOK = True Then
+'err 5 Invalid call or argument - when program interruped in vbe - not sure why
+'think its something to do with timeouts
+        On Error Resume Next
+        Shell (Outfil)
+        On Error GoTo 0
+    End If
+    Unload Me
+End Sub
+
+Private Sub Form_Load()
+    Caption = App.EXEName & " Update"
+    Label1.Left = 50
+    Label1.Top = 0
+    Label1.Width = ScaleWidth - 100 'Fill to Width of Form with 50 padding
+    Timeout = 10 'Default
+End Sub
+
+Private Sub Timer1_Timer()
+    Timeout = Timeout - 1
+    cmdCancel.Caption = "Cancel " & Timeout
+    If Timeout <= 0 Then
+        Timer1.Enabled = False
+        Unload Me
+    End If
+End Sub
+
+'Returns True if Download completed
+Public Function DownloadBox(ReqUrl As String, Optional ReqTimeout As Variant) As Boolean
+Dim ch As Long
+
+'Check if we have access to the output file when we first try and open the form.
+'We won't if the form is already open , because user has not closed form on previous attempt
+'to run program
+
+    On Error GoTo BadFile:
+    Outfil = Environ("TEMP") & "\" & UrlToName(ReqUrl)
+    ch = FreeFile
+    Open Outfil For Binary Access Write As #ch
+    Close ch
+    
+    Url = ReqUrl
+    Label1 = "Current Version is " & App.Major & "." & App.Minor & "." & App.Revision & ", a later version" & vbCrLf
+    Label1 = Label1 & Url & " is available for download." & vbCrLf
+
+'Scale the height
+    Height = Height - ScaleHeight   'Top and bottom borders
+    Height = Height + Label1.Height + 200   'Size of the text
+    Height = Height + ProgressBar1.Height + 200
+    Check1.Height = ProgressBar1.Height 'on same line
+'    Height = Height + Check1.Height + 200  'on same line
+    Height = Height + cmdOK.Height + 200
+    Height = Height + StatusBar1.Height
+    
+'Position in middle of screen
+    Top = (Screen.Height - Height) / 2
+    Left = (Screen.Width - Width) / 2
+'Position check box
+    Check1.Top = Label1.Height + 200
+'Position ProgressBar
+    ProgressBar1.Top = Check1.Top
+'Position Command buttons
+    cmdOK.Top = Check1.Top + Check1.Height + 200
+    cmdCancel.Top = cmdOK.Top
+    If Not IsMissing(ReqTimeout) Then Timeout = ReqTimeout
+    cmdCancel.Caption = "Cancel " & Timeout
+    Timer1.Enabled = True
+    Show vbModal
+    If DownloadOK Then DownloadBox = True
+    Exit Function
+    
+BadFile:
+    Unload Me
+End Function
+
+'Returns a text document as a string (used for the Directory)
+'Which is processed to see if a new version exists
+Public Function HttpGetDocument(ByVal ReqUrl As String) As String
+    Dim S As String
+    Dim Exists As Boolean
+    
+    On Error GoTo Inet1_Error
+    With Inet1
+        .RequestTimeout = 10
+        .Protocol = icHTTP
+        .Url = ReqUrl
+        S = .OpenURL
+        .Execute
+'see http://support.microsoft.com/kb/182152 =True doesnt work
+        Do While .StillExecuting <> False
+            DoEvents
+        Loop
+'        Inet1.Execute , "GET"
+'        S = UCase(.GetHeader())
+'        Exists = (InStr(1, S, "200 OK") > 0)
+        .Cancel 'close therequest
+    End With
+    If S = "" Then
+        StatusBar1.Panels(1).Text = "Blank Directory"
+        cmdOK.Enabled = False
+        cmdCancel.Enabled = True
+    End If
+    HttpGetDocument = S
+    Unload Me
+    Exit Function
+
+Inet1_Error:
+    Select Case err.Number
+    Case Is = icConnectFailed 'No internet connection
+    End Select
+    Inet1.Cancel
+    StatusBar1.Panels(1).Text = "Error " & err.Number & " - " & err.Description
+    cmdOK.Enabled = False
+    cmdCancel.Enabled = True
+'MsgBox Err.Description
+ '   Unload Me
+End Function
+
+'progress bar and download
+Public Function PBandD(Url As String)
+    On Error GoTo PBandD_err 'comment out to see errors
+    Inet1.Url = Url
+    cmdOK.Enabled = False
+    cmdCancel.Enabled = True
+    Check1.Visible = False
+    ProgressBar1.Visible = True
+    StatusBar1.Panels(1).Text = Inet1.Url
+    Outfil = Environ("TEMP") & "\" & UrlToName(Inet1.Url)
+    Label1.Caption = "Downloading " & Inet1.Url
+    If Label1.Width > ScaleWidth Then   'Long file name
+        Width = Width + (Label1.Width - ScaleWidth) + 200
+    End If
+    If Inet1.StillExecuting Then
+    StatusBar1.Panels(1).Text = "Busy"
+'        MsgBox "we are busy with your last request. Please try again"
+        Exit Function
+    End If
+    If Len(Inet1.Url) > 0 Then
+        Inet1.Execute , "HEAD"
+'        MsgBox "All headers=" & Inet1.GetHeader(), vbOKOnly, "Header info that was returned"
+'        MsgBox "Last Modified=" & Inet1.GetHeader("Last-modified"), vbOKOnly, "Header info that was returned"
+'        MsgBox "Accept Ranges=" & Inet1.GetHeader("Accept-Ranges"), vbOKOnly, "Header info that was returned"
+                                              'bytes or
+'        MsgBox "Content Length=" & Inet1.GetHeader("Content-Length"), vbOKOnly, "Header info that was returned"
+'1st call
+        Do While Inet1.StillExecuting = True
+            DoEvents
+        Loop
+Debug.Print DownloadOK
+        ProgressBar1.Max = Inet1.GetHeader("Content-Length")
+        Inet1.Execute , "GET"
+    Else
+    StatusBar1.Panels(1).Text = "No URL"
+        Exit Function
+    End If
+    Do While Inet1.StillExecuting = True
+'2nd call
+        DoEvents
+    Loop
+Debug.Print DownloadOK
+    PBandD = DownloadOK
+    Inet1.Cancel
+    Exit Function
+
+PBandD_err:
+Inet1_Error:
+    Select Case err.Number
+    Case Is = icConnectFailed 'No internet connection
+    End Select
+    Inet1.Cancel
+    StatusBar1.Panels(1).Text = "Error " & err.Number & " - " & err.Description
+    cmdOK.Enabled = False
+    cmdCancel.Enabled = True
+End Function
+
+Private Sub Inet1_StateChanged(ByVal State As Integer)
+Dim i As Long
+'check all the states an list them in the listbox
+    Select Case State
+    Case 1
+        StatusBar1.Panels(1).Text = "Resolving Host"
+    Case 2
+        StatusBar1.Panels(1).Text = "Host Resolved"
+    Case 3
+        StatusBar1.Panels(1).Text = "Connecting"
+    Case 4
+        StatusBar1.Panels(1).Text = "Connected"
+    Case 5
+        StatusBar1.Panels(1).Text = "Requesting"
+    Case 6
+        StatusBar1.Panels(1).Text = "Request Sent"
+        StatusBar1.Panels(1).Text = "Preparing to download"
+    Case 7
+'        StatusBar1.Panels(1).Text = "Receiving Response"
+    Case 8
+'        StatusBar1.Panels(1).Text = "Response Received"
+    Case 9
+        StatusBar1.Panels(1).Text = "Disconnecting"
+    Case 10
+        StatusBar1.Panels(1).Text = "Disconnected"
+        StatusBar1.Panels(1).Text = "Downloaded"
+        cmdOK.Enabled = False
+        cmdCancel.Enabled = False
+    Case 11
+'        MsgBox Str(Inet1.ResponseCode) & ": " & Inet1.ResponseInfo, vbOKOnly, "MSInet error"
+        StatusBar1.Panels(1).Text = "Error"
+    Case 12  'request complete get the data
+        StatusBar1.Panels(1).Text = "Response Completed"
+        
+        Dim sHeader As String
+        ' look in the headers for a 401 or 407 error
+        'If we get them we will then need to try the request with a username and password
+        sHeader = Inet1.GetHeader()
+'        MsgBox sHeader, vbOKOnly, "Header info that was returned"
+        If InStr(1, sHeader, "407") Or InStr(1, sHeader, "401") Then 'we check for both proxy and IIS Access denied
+            StatusBar1.Panels(1).Text = "Access is denied"
+        End If
+                
+        If InStr(1, Inet1.Document, ".exe", vbTextCompare) > 0 Then
+'1st & 2nd call
+            Call BinaryFile
+        End If
+    End Select
+
+End Sub
+
+Private Sub BinaryFile()
+Dim vtData As Variant ' Data variable.
+Dim strData As String: strData = ""
+Dim bDone As Boolean: bDone = False 'Indicate completed, but could have been aborted
+Dim b() As Byte
+Dim i As Long
+
+Debug.Print "bin"
+    On Error GoTo BinaryFile_err:
+    Outfil = Environ("TEMP") & "\" & UrlToName(Inet1.Url)
+    StatusBar1.Panels(1).Text = "Downloading "  '"Creating " & Outfil
+    ch = FreeFile
+    Open Outfil For Binary Access Write As #ch
+    cmdOK.Enabled = False
+    cmdCancel.Enabled = True
+    b() = Inet1.GetChunk(1024, icByteArray)
+    Do While Not bDone
+        i = i + 1
+        Put #ch, , b()
+        b() = Inet1.GetChunk(1024, icByteArray)
+        If UBound(b) = -1 Then
+            bDone = True
+        End If
+        If i * 1024 <= ProgressBar1.Max Then
+            ProgressBar1.Value = i * 1024
+            StatusBar1.Panels(1).Text = "Downloading " & Int(ProgressBar1.Value / ProgressBar1.Max * 100) & "%"
+        End If
+    Loop
+    Close #ch
+Exit Sub
+
+BinaryFile_err:
+    Select Case err.Number
+    Case Is = icTimeout
+    End Select
+    Inet1.Cancel
+    StatusBar1.Panels(1).Text = "Error " & err.Number & " - " & err.Description
+    cmdOK.Enabled = False
+'    cmdCancel.Enabled = True
+End Sub
+
+'Private Sub Timer1_Timer()
+'    Timer1.Enabled = False 'turn the timer off
+'    If Inet1.StillExecuting Then 'are we still working on the request
+'        StatusBar1.Panels(1).Text = "Time-out"      ' vbModal
+'    End If
+'End Sub
+
+Public Function WebFileDate(Url As String)
+'returns "" if fails else the date
+    Inet1.Url = Url
+    If Inet1.StillExecuting Then
+    StatusBar1.Panels(1).Text = "Busy"
+'        MsgBox "we are busy with your last request. Please try again"
+        Exit Function
+    End If
+    If Len(Inet1.Url) > 0 Then
+        Inet1.Execute , "HEAD"
+        Do While Inet1.StillExecuting = True
+            DoEvents
+         Loop
+        WebFileDate = Inet1.GetHeader("Last-modified")
+    Else
+        WebFileDate = ""
+    End If
+    Inet1.Cancel
+    Exit Function
+myerr:
+    
+    StatusBar1.Panels(1).Text = "Error " & err.Number & " - " & err.Description
+
+'we want to check for MSInet control errors
+#If False Then
+    If err.Number > 35749 And err.Number < 35805 Then 'MSInet error
+        MsgBox "error number: " & Str(err.Number) & vbCrLf & _
+            "error discription: " & err.Description & vbCrLf & _
+            "Headers: " & Inet1.GetHeader() & vbCrLf & _
+            "Response code: " & Str(Inet1.ResponseCode) & vbCrLf & _
+            "Response Info: " & Inet1.ResponseInfo, vbOKOnly, "MSInet error"
+    Else 'some other error
+        MsgBox "error number: " & err.Number & vbCrLf & _
+            "error discription: " & err.Description, vbOKOnly, "Error"
+    End If
+#End If
+
+End Function
+
+'Returns the Document Name
+Public Function UrlToName(Url)
+Dim i As Integer
+Dim j As Integer
+Dim FilePath As String
+Dim FileName As String
+j = 0
+Do
+i = j + 1
+j = InStr(i, Url, "/")
+Loop Until j = 0
+UrlToName = Mid$(Url, i, Len(Url) - i + 1)
+End Function
+
+
